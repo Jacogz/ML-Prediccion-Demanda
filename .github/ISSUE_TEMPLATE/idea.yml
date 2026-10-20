@@ -1,0 +1,12 @@
+name: Idea
+description: Captura rápida. Se procesa en la planeación del lunes.
+title: "[idea] "
+labels: ["inbox"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: Una línea basta.
+    validations:
+      required: true

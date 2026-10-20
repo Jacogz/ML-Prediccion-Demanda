@@ -1,0 +1,16 @@
+# Secretos
+.env
+
+# Contexto local de Claude (no compartido)
+CLAUDE.local.md
+
+# Datos (Kaggle: no se redistribuyen)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+

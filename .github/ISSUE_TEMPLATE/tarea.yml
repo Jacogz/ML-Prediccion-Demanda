@@ -1,0 +1,39 @@
+name: Tarea
+description: Unidad de trabajo que cabe en una sesión de 1 hora
+title: "[tarea] "
+body:
+  - type: textarea
+    id: resultado
+    attributes:
+      label: Resultado esperado
+      description: ¿Qué existe al terminar que no existía antes?
+    validations:
+      required: true
+  - type: dropdown
+    id: modo
+    attributes:
+      label: Modo
+      options:
+        - Delegar — el agente lo hace
+        - Pareja — el agente propone, yo reviso y explico
+        - Solo primero — yo escribo, el agente revisa
+    validations:
+      required: true
+  - type: textarea
+    id: verificacion
+    attributes:
+      label: ¿Cómo sé que está hecho?
+      description: Test, comando o captura.
+    validations:
+      required: true
+  - type: checkboxes
+    id: tamano
+    attributes:
+      label: Tamaño
+      options:
+        - label: Cabe en una sesión de 1 hora (si no, dividir antes de empezar)
+          required: true
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto (opcional)
