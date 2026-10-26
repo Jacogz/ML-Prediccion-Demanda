@@ -1,6 +1,7 @@
 name: Tarea
 description: Unidad de trabajo que cabe en una sesión de 1 hora
 title: "[tarea] "
+projects: ["Jacogz/6"]
 body:
   - type: textarea
     id: resultado
