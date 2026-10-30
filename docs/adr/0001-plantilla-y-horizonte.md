@@ -60,3 +60,13 @@ cualquier horizonte, así que no fue un factor de decisión.
   agrupando por `categoria`.
 - Si se necesita cambiar a un horizonte distinto de 1 día, este ADR debe revisarse — no es una
   decisión implícita del pipeline.
+
+## Nota de actualización — 2026-10-30 (issue #7)
+
+Al construir las variables (issue #7) se decidió que el *target* del modelo es la **venta total
+de la tienda** (suma de `unidades` de las `categoria` seleccionadas), no `unidades` por categoría
+individual. La plantilla de columnas y el horizonte de este ADR no cambian: siguen describiendo
+los datos de entrada por `fecha × categoria`. Lo que cambia es el paso de agregación posterior
+— se pivotea esa tabla a una fila por `fecha`, con las features de cada categoría como columnas
+separadas y el target como la suma de `unidades` de ese día. Ver la sección "Variables sin fuga
+de información" del notebook.
