@@ -7,7 +7,7 @@ total del día siguiente.
 Las funciones `recortar_arranque`, `calcular_features` y `construir_tabla_entrenamiento` son las
 mismas del notebook `model_development.ipynb`: si cambian allá, hay que cambiarlas aquí.
 
-Uso: python -m src.pipeline --data <csv> [--test-days 30]
+Uso: python -m src.pipeline --data <csv> [--folds 4]
 """
 
 import argparse
@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import TimeSeriesSplit
 
 # Plantilla del ADR 0001 -> nombres internos (los mismos del notebook, que vienen de Favorita).
 COLUMNAS_PLANTILLA = {
@@ -29,7 +30,11 @@ COLUMNAS_OBLIGATORIAS = ["fecha", "categoria", "unidades"]
 FEATURES_POR_FAMILIA = [
     "lag_7", "lag_14", "rolling_mean_7", "rolling_mean_14", "onpromotion",
 ]
-TEST_DIAS = 30
+# Validación temporal como en el notebook: TimeSeriesSplit con ventanas de prueba de 7 días.
+# El notebook evalúa la línea base con todos los folds posibles; aquí se limita a las últimas
+# N_FOLDS semanas porque cada fold reentrena el modelo y la app debe responder rápido.
+DIAS_POR_FOLD = 7
+N_FOLDS = 4
 MIN_DIAS = 60
 
 
@@ -150,10 +155,19 @@ def columnas_features(tabla):
     return [c for c in tabla.columns if c not in ("date", "ventas_totales")]
 
 
-def dividir_en_el_tiempo(tabla, test_dias=TEST_DIAS):
-    tabla = tabla.sort_values("date")
-    corte = tabla["date"].max() - pd.Timedelta(days=test_dias)
-    return tabla[tabla["date"] <= corte], tabla[tabla["date"] > corte]
+def folds_temporales(tabla, n_folds=N_FOLDS, dias_por_fold=DIAS_POR_FOLD):
+    """Pares (train, test): cada test es una semana y su train, todos los días anteriores."""
+    tabla = tabla.sort_values("date").reset_index(drop=True)
+    if len(tabla) < (n_folds + 1) * dias_por_fold:
+        raise ValueError(
+            f"No hay suficientes días con historia para validar con {n_folds} folds "
+            f"de {dias_por_fold} días."
+        )
+    tscv = TimeSeriesSplit(n_splits=n_folds, test_size=dias_por_fold)
+    for train_idx, test_idx in tscv.split(tabla):
+        train, test = tabla.iloc[train_idx], tabla.iloc[test_idx]
+        assert train["date"].max() < test["date"].min()
+        yield train, test
 
 
 def prediccion_linea_base(tabla):
@@ -169,18 +183,35 @@ def entrenar(tabla):
     return modelo
 
 
-def evaluar(datos, fechas_festivas=frozenset(), test_dias=TEST_DIAS):
+def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS):
+    """MAE del modelo y de la línea base: promedio simple de los MAE de cada fold."""
     tabla = construir_tabla_entrenamiento(recortar_arranque(datos), fechas_festivas)
-    train, test = dividir_en_el_tiempo(tabla, test_dias)
-    modelo = entrenar(train)
+    tabla = tabla.dropna()  # primeras fechas sin historia suficiente para los rezagos
 
-    test = test.dropna().copy()
-    test["prediccion"] = modelo.predict(test[columnas_features(test)])
-    test["linea_base"] = prediccion_linea_base(test)
+    predicciones, por_fold = [], []
+    for fold, (train, test) in enumerate(folds_temporales(tabla, n_folds), start=1):
+        modelo = entrenar(train)
+        test = test.copy()
+        test["prediccion"] = modelo.predict(test[columnas_features(test)])
+        test["linea_base"] = prediccion_linea_base(test)
+        test["fold"] = fold
+        predicciones.append(test)
+        por_fold.append({
+            "fold": fold,
+            "desde": test["date"].min(),
+            "hasta": test["date"].max(),
+            "mae_modelo": mean_absolute_error(test["ventas_totales"], test["prediccion"]),
+            "mae_linea_base": mean_absolute_error(test["ventas_totales"], test["linea_base"]),
+        })
+
+    por_fold = pd.DataFrame(por_fold)
     return {
-        "mae_modelo": mean_absolute_error(test["ventas_totales"], test["prediccion"]),
-        "mae_linea_base": mean_absolute_error(test["ventas_totales"], test["linea_base"]),
-        "test": test[["date", "ventas_totales", "prediccion", "linea_base"]],
+        "mae_modelo": por_fold["mae_modelo"].mean(),
+        "mae_linea_base": por_fold["mae_linea_base"].mean(),
+        "por_fold": por_fold,
+        "test": pd.concat(predicciones)[
+            ["date", "fold", "ventas_totales", "prediccion", "linea_base"]
+        ],
     }
 
 
@@ -209,14 +240,14 @@ def predecir_dia_siguiente(datos, fechas_festivas=frozenset(), promociones=None)
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data", required=True, help="CSV con la plantilla del ADR 0001")
-    parser.add_argument("--test-days", type=int, default=TEST_DIAS)
+    parser.add_argument("--folds", type=int, default=N_FOLDS, help="semanas de validación")
     args = parser.parse_args()
 
     datos = cargar_plantilla(args.data)
     completadas = datos.attrs["fechas_completadas"]
     if len(completadas):
         print(f"Días sin registros, completados con venta 0: {len(completadas)}")
-    resultado = evaluar(datos, test_dias=args.test_days)
+    resultado = evaluar(datos, n_folds=args.folds)
     print(f"MAE línea base (mismo día de la semana anterior): {resultado['mae_linea_base']:.1f}")
     print(f"MAE modelo: {resultado['mae_modelo']:.1f}")
 

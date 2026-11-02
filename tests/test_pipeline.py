@@ -19,11 +19,28 @@ def datos_sinteticos(dias=120):
     return pd.concat(filas, ignore_index=True)
 
 
-def test_division_temporal_sin_mezclar_fechas():
-    tabla = pipeline.construir_tabla_entrenamiento(datos_sinteticos())
-    train, test = pipeline.dividir_en_el_tiempo(tabla, test_dias=30)
-    assert train["date"].max() < test["date"].min()
-    assert len(test) == 30
+def test_folds_temporales_sin_mezclar_fechas():
+    tabla = pipeline.construir_tabla_entrenamiento(datos_sinteticos()).dropna()
+    folds = list(pipeline.folds_temporales(tabla, n_folds=4, dias_por_fold=7))
+
+    assert len(folds) == 4
+    for train, test in folds:
+        assert train["date"].max() < test["date"].min()
+        assert len(test) == 7
+    # Las semanas de prueba son consecutivas y la última termina en la última fecha.
+    pruebas = pd.concat(test for _, test in folds)["date"]
+    assert pruebas.is_unique and pruebas.is_monotonic_increasing
+    assert pruebas.max() == tabla["date"].max()
+
+
+def test_evaluar_promedia_el_mae_de_los_folds():
+    resultado = pipeline.evaluar(datos_sinteticos(), n_folds=3)
+    por_fold = resultado["por_fold"]
+    assert len(por_fold) == 3
+    assert resultado["mae_modelo"] == pytest.approx(por_fold["mae_modelo"].mean())
+    assert resultado["mae_linea_base"] == pytest.approx(por_fold["mae_linea_base"].mean())
+    assert len(resultado["test"]) == 3 * pipeline.DIAS_POR_FOLD
+    assert not resultado["test"]["linea_base"].isna().any()
 
 
 def test_features_no_usan_el_dia_predicho_ni_el_futuro():

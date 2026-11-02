@@ -87,13 +87,14 @@ st.metric(f"Ventas estimadas para el {fecha:%Y-%m-%d}", f"{prediccion:,.0f} unid
 
 st.subheader("¿Qué tan confiable es?")
 st.write(
-    f"Para medirlo, el modelo se entrenó sin los últimos {pipeline.TEST_DIAS} días y luego "
-    f"predijo esos días. Se equivocó en promedio en **{resultado['mae_modelo']:,.0f} unidades "
+    f"Para medirlo se simuló su uso en cada una de las últimas {pipeline.N_FOLDS} semanas del "
+    f"archivo: el modelo se entrenó solo con los días anteriores a esa semana y luego la "
+    f"predijo. Se equivocó en promedio en **{resultado['mae_modelo']:,.0f} unidades "
     f"por día**. La regla simple de repetir lo vendido el mismo día de la semana pasada se "
     f"equivocó en **{resultado['mae_linea_base']:,.0f}**."
 )
 
-grafica = resultado["test"].set_index("date").rename(columns={
+grafica = resultado["test"].drop(columns="fold").set_index("date").rename(columns={
     "ventas_totales": "Ventas reales",
     "prediccion": "Modelo",
     "linea_base": "Mismo día semana pasada",
