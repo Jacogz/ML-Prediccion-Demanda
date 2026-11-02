@@ -129,6 +129,7 @@ def calcular_features(df, fechas_festivas=frozenset()):
     )
 
     df["es_festivo"] = df["date"].isin(fechas_festivas)
+    df["dia_semana"] = df["date"].dt.day_of_week  # 0 = lunes; entero, el modelo es de árboles
     return df
 
 
@@ -144,7 +145,7 @@ def construir_tabla_entrenamiento(df, fechas_festivas=frozenset()):
     pivote = pivote.reset_index()
 
     calendario = (
-        df.groupby("date")[["dias_desde_quincena", "es_festivo"]].first().reset_index()
+        df.groupby("date")[["dias_desde_quincena", "es_festivo", "dia_semana"]].first().reset_index()
     )
     target = df.groupby("date")["sales"].sum().rename("ventas_totales").reset_index()
 

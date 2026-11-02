@@ -114,3 +114,10 @@ def test_categoria_sin_filas_un_dia_cuenta_como_venta_cero():
     assert len(datos.attrs["fechas_completadas"]) == 0  # el día sí tiene registros de A
     fila = datos[(datos["date"] == fechas[30]) & (datos["family"] == "B")]
     assert fila["sales"].item() == 0
+
+
+def test_dia_semana_es_variable_del_calendario():
+    tabla = pipeline.construir_tabla_entrenamiento(datos_sinteticos())
+    assert "dia_semana" in pipeline.columnas_features(tabla)
+    assert (tabla["dia_semana"] == tabla["date"].dt.day_of_week).all()
+    assert set(tabla["dia_semana"]) == set(range(7))
