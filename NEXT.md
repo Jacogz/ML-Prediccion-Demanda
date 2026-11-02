@@ -1,7 +1,30 @@
 # NEXT
 
 Actualizado: 2026-11-02
-Issue activo: #9 (despliegue) y #6 (pipeline), hechos por Nicolás, pendientes de revisión. Candidato siguiente: modelo final en el notebook (Jacobo), luego #11 (SHAP).
+Issue activo: #9 (despliegue) y #6 (pipeline), hechos por Nicolás y revisados por Jacobo (ver abajo). Candidato siguiente: modelo final en el notebook (Jacobo), luego #11 (SHAP).
+
+## Revisión de Jacobo (2026-11-02, después del commit de Nicolás)
+
+- **Notebook:** se reintrodujeron dos secciones sobre la versión de Nicolás:
+  - "Completar el 25 de diciembre" (antes de "Recorte del arranque"): `train.csv` no trae el
+    25-dic; se agrega con `sales=0` y `onpromotion=0`. Si falta otra fecha, la celda falla.
+  - "Línea base con validación temporal" (al final, antes de "Notas"): MAE promedio de la línea
+    base con `TimeSeriesSplit` en ventanas de 7 días.
+  - Falta correrlo completo en un runtime nuevo de Colab.
+- **Pipeline:** `cargar_plantilla` ahora llama a `completar_calendario`: una fila por cada día y
+  categoría; lo que no tiene registros queda en venta 0. Así `lag_7` siempre mira 7 días atrás
+  (antes, el `lag_7` del 31-dic devolvía el 23-dic). Los días completados quedan en
+  `datos.attrs["fechas_completadas"]`. 2 tests nuevos; `pytest` en verde (7 tests).
+  Esto resuelve la decisión pendiente "Fechas faltantes (25 de diciembre)".
+
+### Pendientes que salieron de la revisión
+1. **Interpolación vs 25-dic:** si diciembre de 2014 está en `meses_a_reparar`,
+   `reparar_con_interpolacion` reemplaza el 0 del 25-dic (tienda cerrada) por un valor
+   interpolado en PRODUCE y BEVERAGES. Solución: excluir los 25-dic de la máscara `interpolado`.
+2. **Dos formas de medir el MAE:** el pipeline usa los últimos 30 días; el notebook, el promedio
+   de folds de 7 días con `TimeSeriesSplit`. Los números no son comparables (3975 de NEXT vs
+   `mae_baseline_promedio` del notebook). Hay que elegir una para reportar.
+3. **App:** mostrar cuántos días se completaron con venta 0 (`datos.attrs["fechas_completadas"]`).
 
 ## Reparto propuesto (por confirmar con Jacobo)
 - **Jacobo:** modelo en el notebook (grid search, XGBoost, SHAP).
@@ -43,9 +66,8 @@ Issue activo: #9 (despliegue) y #6 (pipeline), hechos por Nicolás, pendientes d
   da 3975, así que hoy el modelo provisional casi no le gana.
 - **Datos reparados vs originales:** con el modelo provisional, los reparados dan MAE 4062 vs
   3859 de los originales. Comparar de nuevo con el modelo final antes de decidir.
-- **Fechas faltantes (25 de diciembre):** `shift(7)` cuenta filas, no días. Con un día faltante,
-  `lag_7` de la semana siguiente mira 8 días atrás. Pequeño en Favorita, puede pesar en un
-  negocio con huecos. No se cambió para no diferir del notebook.
+- ~~**Fechas faltantes (25 de diciembre)**~~: resuelto en notebook y pipeline (ver "Revisión de
+  Jacobo").
 
 ## Pendientes menores (heredados, no bloquean nada)
 
