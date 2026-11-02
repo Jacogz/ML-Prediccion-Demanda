@@ -67,6 +67,15 @@ st.success(
     f"al {datos['date'].max():%Y-%m-%d}."
 )
 
+completadas = datos.attrs.get("fechas_completadas", [])
+if len(completadas):
+    ejemplos = ", ".join(f"{f:%Y-%m-%d}" for f in completadas[:5])
+    st.info(
+        f"{len(completadas)} días no tenían ninguna venta registrada y se tomaron como venta 0 "
+        f"(por ejemplo, días en que el negocio cerró): {ejemplos}"
+        + (" y otros." if len(completadas) > 5 else ".")
+    )
+
 ultimo_dia = datos[datos["date"] == datos["date"].max()].set_index("family")["onpromotion"]
 with st.expander("Promociones planeadas para mañana (opcional)"):
     st.caption("Por defecto se usan las del último día del archivo.")
