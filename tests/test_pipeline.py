@@ -62,3 +62,38 @@ def test_prediccion_es_del_dia_siguiente():
     fecha, prediccion = pipeline.predecir_dia_siguiente(datos)
     assert fecha == datos["date"].max() + pd.Timedelta(days=1)
     assert np.isfinite(prediccion) and prediccion > 0
+
+
+def csv_plantilla(fechas, ventas_por_fecha, familias=("A", "B")):
+    filas = ["fecha,categoria,unidades"]
+    for fecha in fechas:
+        for familia in familias:
+            filas.append(f"{fecha.date()},{familia},{ventas_por_fecha.get(fecha, 1)}")
+    return io.StringIO("\n".join(filas))
+
+
+def test_dia_faltante_se_completa_y_lag_7_mira_7_dias_atras():
+    fechas = pd.date_range("2024-11-01", "2025-01-31")
+    navidad, nochebuena = pd.Timestamp("2024-12-25"), pd.Timestamp("2024-12-24")
+    datos = pipeline.cargar_plantilla(
+        csv_plantilla(fechas.drop(navidad), {nochebuena: 99})
+    )
+
+    assert list(datos.attrs["fechas_completadas"]) == [navidad]
+    assert (datos.loc[datos["date"] == navidad, "sales"] == 0).all()
+
+    tabla = pipeline.construir_tabla_entrenamiento(datos).set_index("date")
+    assert tabla.loc["2024-12-31", "lag_7_A"] == 99  # el 24 de diciembre, no el 23
+    assert tabla.loc["2025-01-01", "lag_7_A"] == 0  # el 25 de diciembre completado
+
+
+def test_categoria_sin_filas_un_dia_cuenta_como_venta_cero():
+    fechas = pd.date_range("2024-01-01", periods=pipeline.MIN_DIAS)
+    csv = csv_plantilla(fechas, {})
+    lineas = [l for l in csv.getvalue().splitlines() if l != f"{fechas[30].date()},B,1"]
+    datos = pipeline.cargar_plantilla(io.StringIO("\n".join(lineas)))
+
+    assert len(datos) == 2 * pipeline.MIN_DIAS
+    assert len(datos.attrs["fechas_completadas"]) == 0  # el día sí tiene registros de A
+    fila = datos[(datos["date"] == fechas[30]) & (datos["family"] == "B")]
+    assert fila["sales"].item() == 0

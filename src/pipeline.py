@@ -67,7 +67,34 @@ def cargar_plantilla(archivo):
 
     if datos["date"].nunique() < MIN_DIAS:
         raise ValueError(f"Se necesitan al menos {MIN_DIAS} días de ventas para entrenar.")
-    return datos.sort_values(["family", "date"]).reset_index(drop=True)
+
+    fechas_completadas = fechas_sin_registros(datos)
+    datos = completar_calendario(datos)
+    datos.attrs["fechas_completadas"] = fechas_completadas
+    return datos
+
+
+def fechas_sin_registros(datos):
+    calendario = pd.date_range(datos["date"].min(), datos["date"].max(), freq="D")
+    return calendario.difference(datos["date"].unique())
+
+
+def completar_calendario(datos):
+    """Una fila por cada día y categoría entre la primera y la última fecha.
+
+    `shift` y `rolling` cuentan filas, no días: si falta un día (por ejemplo, el 25 de diciembre
+    en Favorita, cuando la tienda cierra), `lag_7` apuntaría a 8 días atrás. En la plantilla cada
+    fila es venta registrada, así que una combinación de día y categoría sin filas es venta 0.
+    """
+    calendario = pd.date_range(datos["date"].min(), datos["date"].max(), freq="D")
+    grilla = pd.MultiIndex.from_product(
+        [sorted(datos["family"].unique()), calendario], names=["family", "date"]
+    )
+    return (
+        datos.set_index(["family", "date"])[["sales", "onpromotion"]]
+        .reindex(grilla, fill_value=0)
+        .reset_index()
+    )
 
 
 def recortar_arranque(df):
@@ -186,6 +213,9 @@ def main():
     args = parser.parse_args()
 
     datos = cargar_plantilla(args.data)
+    completadas = datos.attrs["fechas_completadas"]
+    if len(completadas):
+        print(f"Días sin registros, completados con venta 0: {len(completadas)}")
     resultado = evaluar(datos, test_dias=args.test_days)
     print(f"MAE línea base (mismo día de la semana anterior): {resultado['mae_linea_base']:.1f}")
     print(f"MAE modelo: {resultado['mae_modelo']:.1f}")
