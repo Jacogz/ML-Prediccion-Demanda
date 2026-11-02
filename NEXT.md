@@ -18,13 +18,18 @@ Issue activo: #9 (despliegue) y #6 (pipeline), hechos por Nicolás y revisados p
   Esto resuelve la decisión pendiente "Fechas faltantes (25 de diciembre)".
 
 ### Pendientes que salieron de la revisión
-1. **Interpolación vs 25-dic:** si diciembre de 2014 está en `meses_a_reparar`,
-   `reparar_con_interpolacion` reemplaza el 0 del 25-dic (tienda cerrada) por un valor
-   interpolado en PRODUCE y BEVERAGES. Solución: excluir los 25-dic de la máscara `interpolado`.
-2. **Dos formas de medir el MAE:** el pipeline usa los últimos 30 días; el notebook, el promedio
-   de folds de 7 días con `TimeSeriesSplit`. Los números no son comparables (3975 de NEXT vs
-   `mae_baseline_promedio` del notebook). Hay que elegir una para reportar.
-3. **App:** mostrar cuántos días se completaron con venta 0 (`datos.attrs["fechas_completadas"]`).
+1. **Interpolación vs 25-dic (decidido: se deja como está).** Si diciembre de 2014 está en
+   `meses_a_reparar`, `reparar_con_interpolacion` reemplaza el 0 del 25-dic (tienda cerrada) por
+   un valor interpolado en PRODUCE y BEVERAGES. No se corrige: se agregará una nota sobre los
+   días faltantes al analizar la diferencia entre los datos reparados y los originales.
+2. **Una sola forma de medir el MAE (hecho):** el pipeline ahora usa `TimeSeriesSplit` con
+   semanas de prueba de 7 días, como el notebook (`folds_temporales` y `evaluar`). El MAE es el
+   promedio simple de los folds; `evaluar` también devuelve `por_fold`. Por velocidad de la app
+   usa solo las últimas `N_FOLDS = 4` semanas (CLI: `--folds`); el notebook evalúa la línea base
+   con todos los folds posibles. Al comparar el modelo final contra la línea base en el notebook,
+   usar los mismos folds para ambos. El 3975 de abajo (últimos 30 días) ya no aplica.
+3. **App (hecho):** muestra cuántos días se completaron con venta 0 y explica la validación por
+   semanas. Solo se verificó que compila; falta probarla con `streamlit run app.py`.
 
 ## Reparto propuesto (por confirmar con Jacobo)
 - **Jacobo:** modelo en el notebook (grid search, XGBoost, SHAP).
