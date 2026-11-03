@@ -46,9 +46,8 @@ PARAMETROS_MODELO = {}
 def crear_modelo():
     # Misma configuración fija del notebook. early_stopping=False porque el early stopping de HGBT
     # separa al azar una parte del entrenamiento, y la división tiene que ser temporal.
-    return HistGradientBoostingRegressor(
-        max_iter=200, early_stopping=False, random_state=42, **PARAMETROS_MODELO
-    )
+    fijos = {"max_iter": 200, "early_stopping": False, "random_state": 42}
+    return HistGradientBoostingRegressor(**{**fijos, **PARAMETROS_MODELO})
 
 
 def cargar_plantilla(archivo):
