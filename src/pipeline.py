@@ -14,7 +14,7 @@ import argparse
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -38,9 +38,17 @@ N_FOLDS = 4
 MIN_DIAS = 60
 
 
+# Hiperparámetros del modelo final. Se copian de la salida de GridSearchCV en la sección
+# "Modelo final" del notebook (issue #12). Mientras esté vacío, HGBT usa los valores por defecto.
+PARAMETROS_MODELO = {}
+
+
 def crear_modelo():
-    # Modelo provisional. Cuando se elija el modelo final en el notebook, se cambia solo aquí.
-    return RandomForestRegressor(n_estimators=300, random_state=42, n_jobs=-1)
+    # Misma configuración fija del notebook. early_stopping=False porque el early stopping de HGBT
+    # separa al azar una parte del entrenamiento, y la división tiene que ser temporal.
+    return HistGradientBoostingRegressor(
+        max_iter=200, early_stopping=False, random_state=42, **PARAMETROS_MODELO
+    )
 
 
 def cargar_plantilla(archivo):
