@@ -19,6 +19,31 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   GitHub guardados antes del cambio). Cerrar sesión en share.streamlit.io y volver a entrar, o que
   Jacobo la publique.
 
+## Modelo final (issue #12, Jacobo, 2026-11-03)
+
+Sección "Modelo final (issue #12)" del notebook, antes de SHAP.
+- **Variable nueva:** `dia_semana` (entero 0 = lunes … 6 = domingo), en el notebook y en el
+  pipeline.
+- **Método:** las últimas 8 semanas (2017-06-21 a 2017-08-15) son la prueba y no se usan para
+  elegir nada. `GridSearchCV` de HGBT solo sobre el desarrollo (`TimeSeriesSplit`, 8 folds de 7
+  días, 72 combinaciones). Luego HGBT, el Random Forest provisional y la línea base se evalúan en
+  las 8 semanas de prueba, reentrenando antes de cada semana. Con datos originales y reparados.
+  HGBT va con `early_stopping=False` (su early stopping parte los datos al azar).
+- **Resultado (prueba):** HGBT con datos reparados: MAE 2750.6, 33.3 % mejor que la línea base
+  (4125.5), mejor en 7 de 8 semanas, WAPE 7.7 %. Random Forest: 3336.0. Con datos originales,
+  HGBT da 2813.9. Brecha entrenamiento/prueba de HGBT moderada (2079 vs 2751); el Random Forest
+  memoriza mucho más (1197 vs 3336).
+- **Hiperparámetros elegidos** (en `PARAMETROS_MODELO` de `src/pipeline.py`):
+  `absolute_error`, `learning_rate=0.1`, `max_leaf_nodes=15`, `min_samples_leaf=40`,
+  `l2_regularization=0`, `max_iter=200`.
+- **Exploración:** una grilla de 480 combinaciones bajó el MAE en desarrollo pero subió el de
+  prueba (2750.6 → 2858.0). Se volvió a la primera grilla y se dejó registrado en la celda. En la
+  presentación hay que contarlo tal cual: la prueba se miró antes de volver a esa grilla; lo que
+  la sostiene es que fue la primera que se definió. Sirve como evidencia de sobreajuste a la
+  validación (requisito 3.6).
+- La interpolación no tocó ningún 25 de diciembre: los meses reparados son 2014-02, 04, 05, 06,
+  08 y 2015-01 a 05.
+
 ## Revisión de Jacobo (2026-11-02, después del commit de Nicolás)
 
 - **Notebook:** se reintrodujeron dos secciones sobre la versión de Nicolás:
@@ -34,10 +59,7 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   Esto resuelve la decisión pendiente "Fechas faltantes (25 de diciembre)".
 
 ### Pendientes que salieron de la revisión
-1. **Interpolación vs 25-dic (decidido: se deja como está).** Si diciembre de 2014 está en
-   `meses_a_reparar`, `reparar_con_interpolacion` reemplaza el 0 del 25-dic (tienda cerrada) por
-   un valor interpolado en PRODUCE y BEVERAGES. No se corrige: se agregará una nota sobre los
-   días faltantes al analizar la diferencia entre los datos reparados y los originales.
+1. ~~**Interpolación vs 25-dic**~~: no aplica, ningún diciembre está entre los meses reparados.
 2. **Una sola forma de medir el MAE (hecho):** el pipeline ahora usa `TimeSeriesSplit` con
    semanas de prueba de 7 días, como el notebook (`folds_temporales` y `evaluar`). El MAE es el
    promedio simple de los folds; `evaluar` también devuelve `por_fold`. Por velocidad de la app
@@ -73,20 +95,26 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
 - El notebook exporta `tienda44_original.csv` y `tienda44_reparada.csv` a `/content/data` para
   subirlos a la app (no van al repo).
 
-## Siguiente paso
-- Jacobo: elegir modelo final. Cuando esté, cambiar solo `crear_modelo()` en `src/pipeline.py`.
-  Si el modelo final agrega o quita variables, cambiarlas en el notebook **y** en
-  `src/pipeline.py` (están copiadas, no importadas).
-- Nicolás: publicar la app en Streamlit Community Cloud y grabar el video.
+## Siguiente paso (entrega hoy, 2026-11-03)
+- **Jacobo:**
+  - Volver a correr la grilla en Colab y confirmar que da MAE 2750.6 (reparados); guardar el
+    notebook con esas salidas.
+  - Escribir el párrafo de **Decisión** de la sección "Modelo final" (hoy es un marcador).
+  - Publicar la app: el repo es de una cuenta personal, así que GitHub no permite dar rol admin a
+    colaboradores y Streamlit lo exige. Jacobo la publica desde share.streamlit.io (pasos en el
+    README); cada push a `main` la actualiza sola.
+  - Revisar SHAP (#11) y el ADR 0002 (#8, sin subir todavía).
+- **Nicolás:** grabar el video. La demo debe usar `tienda44_reparada.csv` (el modelo final se
+  eligió con esos datos).
+- Si se cambian variables, cambiarlas en el notebook **y** en `src/pipeline.py` (están copiadas,
+  no importadas).
 
 ## Decisiones pendientes
 - **2013 no se interpoló:** PRODUCE en ~30 y BEVERAGES a la mitad todo 2013, pero no hay un mes
   válido antes para interpolar. Opciones: dejarlo así (está ahora) o empezar en 2014-01.
-- **Día de la semana:** sigue sin entrar al modelo. Prueba rápida con el Random Forest provisional
-  (datos originales, últimos 30 días): MAE 3859 → 3598 al agregar `dia_semana`. La línea base
-  da 3975, así que hoy el modelo provisional casi no le gana.
-- **Datos reparados vs originales:** con el modelo provisional, los reparados dan MAE 4062 vs
-  3859 de los originales. Comparar de nuevo con el modelo final antes de decidir.
+- ~~**Día de la semana**~~: entra al modelo (#12).
+- ~~**Datos reparados vs originales**~~: ganan los reparados con el modelo final (2750.6 vs
+  2813.9 en prueba).
 - ~~**Fechas faltantes (25 de diciembre)**~~: resuelto en notebook y pipeline (ver "Revisión de
   Jacobo").
 
