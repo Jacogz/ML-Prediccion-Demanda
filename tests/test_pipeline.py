@@ -121,3 +121,16 @@ def test_dia_semana_es_variable_del_calendario():
     assert "dia_semana" in pipeline.columnas_features(tabla)
     assert (tabla["dia_semana"] == tabla["date"].dt.day_of_week).all()
     assert set(tabla["dia_semana"]) == set(range(7))
+
+
+def test_explicacion_suma_la_prediccion_y_agrupa_por_familia():
+    datos = datos_sinteticos()
+    explicacion = pipeline.predecir_y_explicar(datos)
+    fecha, prediccion = pipeline.predecir_dia_siguiente(datos)
+
+    assert explicacion["fecha"] == fecha
+    assert explicacion["prediccion"] == pytest.approx(prediccion)
+    # Aditividad de SHAP: valor base + suma de aportes = predicción.
+    total = explicacion["valor_base"] + explicacion["aportes"].sum()
+    assert total == pytest.approx(explicacion["prediccion"], abs=1e-6)
+    assert set(explicacion["aportes"].index) == {"A", "B", *pipeline.CALENDARIO.values()}

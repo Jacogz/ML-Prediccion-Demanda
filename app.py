@@ -1,12 +1,14 @@
 """Interfaz de predicción de demanda (issue #9). Ejecutar con: streamlit run app.py"""
 
 import holidays
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from src import pipeline
 
 PAISES = {"Ninguno": None, "Colombia": "CO", "Ecuador": "EC"}
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
 EJEMPLO = """fecha,categoria,unidades,promocion
 2024-01-01,Pan,120,0
@@ -26,8 +28,37 @@ def fechas_festivas(pais, datos):
 @st.cache_data(show_spinner=False)
 def calcular(datos, festivos, promociones):
     resultado = pipeline.evaluar(datos, festivos)
-    fecha, prediccion = pipeline.predecir_dia_siguiente(datos, festivos, dict(promociones))
-    return resultado, fecha, prediccion
+    explicacion = pipeline.predecir_y_explicar(datos, festivos, dict(promociones))
+    return resultado, explicacion
+
+
+def nombre_aporte(grupo, fecha):
+    if grupo == "Día de la semana":
+        return f"Día de la semana ({DIAS[fecha.dayofweek]})"
+    if grupo in pipeline.CALENDARIO.values():
+        return grupo
+    return f"Ventas y promociones de {grupo}"
+
+
+def en_frase(grupo):
+    return grupo[0].lower() + grupo[1:]
+
+
+def grafica_aportes(aportes):
+    aportes = aportes.sort_values()
+    fig, ax = plt.subplots(figsize=(7, 0.45 * len(aportes) + 1))
+    colores = ["#2e7d32" if v > 0 else "#c62828" for v in aportes]
+    ax.barh(aportes.index, aportes.values, color=colores)
+    ax.axvline(0, color="black", linewidth=0.8)
+    for i, v in enumerate(aportes.values):
+        ax.annotate(f"{v:+,.0f}", (v, i), xytext=(4 if v > 0 else -4, 0),
+                    textcoords="offset points", va="center", ha="left" if v > 0 else "right")
+    ax.set_xlabel("unidades que suma o resta a la predicción")
+    ax.margins(x=0.25)
+    for lado in ("top", "right"):
+        ax.spines[lado].set_visible(False)
+    fig.tight_layout()
+    return fig
 
 
 st.set_page_config(page_title="Predicción de demanda", page_icon="📈")
@@ -88,11 +119,28 @@ if not st.button("Calcular predicción", type="primary"):
     st.stop()
 
 with st.spinner("Entrenando el modelo con tu historial..."):
-    resultado, fecha, prediccion = calcular(
+    resultado, explicacion = calcular(
         datos, fechas_festivas(pais, datos), tuple(sorted(promociones.items()))
     )
+fecha, prediccion = explicacion["fecha"], explicacion["prediccion"]
 
 st.metric(f"Ventas estimadas para el {fecha:%Y-%m-%d}", f"{prediccion:,.0f} unidades")
+
+st.subheader("¿Por qué ese número?")
+aportes = explicacion["aportes"].rename(lambda g: nombre_aporte(g, fecha))
+suben, bajan = aportes[aportes > 0].head(2), aportes[aportes < 0].head(2)
+frases = []
+if len(suben):
+    frases.append("Lo que más la sube: " + ", ".join(f"{en_frase(g)} (+{v:,.0f})" for g, v in suben.items()) + ".")
+if len(bajan):
+    frases.append("Lo que más la baja: " + ", ".join(f"{en_frase(g)} ({v:,.0f})" for g, v in bajan.items()) + ".")
+st.write(
+    f"El modelo parte de un valor promedio de **{explicacion['valor_base']:,.0f} unidades** y lo "
+    "ajusta con lo que sabe de mañana. Cada barra es cuánto lo sube (verde) o lo baja (rojo); "
+    "la suma da la predicción. " + " ".join(frases)
+)
+st.pyplot(grafica_aportes(aportes))
+st.caption("Calculado con SHAP sobre el modelo entrenado con tu archivo.")
 
 st.subheader("¿Qué tan confiable es?")
 st.write(

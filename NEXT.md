@@ -19,6 +19,15 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   GitHub guardados antes del cambio). Cerrar sesión en share.streamlit.io y volver a entrar, o que
   Jacobo la publique.
 
+## SHAP en la app (Nicolás, 2026-11-03)
+
+Sección "¿Por qué ese número?" debajo de la predicción: `pipeline.predecir_y_explicar` calcula
+SHAP (`TreeExplainer`) solo para la fila de mañana, sobre el mismo modelo que la app entrena, y
+suma los aportes por familia y por variable de calendario (valor base + aportes = predicción,
+con test). La app los muestra en una gráfica verde/roja y una frase en lenguaje normal. Se
+agregaron `shap` y `matplotlib` a `requirements.txt` (probado en un entorno limpio). Después del
+push, revisar que Streamlit Cloud vuelva a desplegar sin errores y grabar el video de nuevo.
+
 ## Modelo final (issue #12, Jacobo, 2026-11-03)
 
 Sección "Modelo final (issue #12)" del notebook, antes de SHAP.

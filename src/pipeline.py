@@ -230,8 +230,51 @@ def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS):
     }
 
 
+CALENDARIO = {
+    "dia_semana": "Día de la semana",
+    "dias_desde_quincena": "Días desde la quincena",
+    "es_festivo": "Festivo",
+}
+
+
+def grupo_de_columna(columna, familias):
+    """Las columnas de cada familia (lag_7_PRODUCE, onpromotion_PRODUCE...) van al grupo de esa
+    familia; las de calendario, cada una a su propio grupo."""
+    if columna in CALENDARIO:
+        return CALENDARIO[columna]
+    return next(f for f in familias if columna.endswith("_" + sanitizar(f)))
+
+
+def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
+    """Predicción del día siguiente y su explicación con SHAP (TreeExplainer, como en clase).
+
+    Los aportes se suman por familia y por variable de calendario: valor_base + suma de aportes
+    = predicción.
+    """
+    import shap  # solo se necesita aquí
+
+    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones)
+    X = fila[columnas_features(fila)]
+    explainer = shap.TreeExplainer(modelo)
+    valores = pd.Series(explainer.shap_values(X)[0], index=X.columns)
+
+    familias = datos["family"].unique()
+    aportes = valores.groupby(lambda c: grupo_de_columna(c, familias)).sum()
+    return {
+        "fecha": fecha,
+        "prediccion": float(modelo.predict(X)[0]),
+        "valor_base": float(np.ravel(explainer.expected_value)[0]),
+        "aportes": aportes.sort_values(key=abs, ascending=False),
+    }
+
+
 def predecir_dia_siguiente(datos, fechas_festivas=frozenset(), promociones=None):
     """Entrena con todo el historial y predice la venta total del día después de la última fecha."""
+    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones)
+    return fecha, float(modelo.predict(fila[columnas_features(fila)])[0])
+
+
+def _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones):
     datos = recortar_arranque(datos)
     fecha = datos["date"].max() + pd.Timedelta(days=1)
     if promociones is None:  # por defecto, las promociones del último día
@@ -248,8 +291,7 @@ def predecir_dia_siguiente(datos, fechas_festivas=frozenset(), promociones=None)
     tabla = construir_tabla_entrenamiento(pd.concat([datos, manana]), fechas_festivas)
 
     modelo = entrenar(tabla[tabla["date"] < fecha])
-    fila = tabla[tabla["date"] == fecha]
-    return fecha, float(modelo.predict(fila[columnas_features(fila)])[0])
+    return fecha, modelo, tabla[tabla["date"] == fecha]
 
 
 def main():

@@ -3,3 +3,5 @@ numpy>=1.26
 scikit-learn>=1.5
 streamlit>=1.40
 holidays>=0.60
+shap>=0.46
+matplotlib>=3.8
