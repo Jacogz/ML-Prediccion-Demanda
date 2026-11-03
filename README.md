@@ -1,6 +1,12 @@
 # ML Predicción de Demanda
 
-Predicción de demanda diaria por familia de producto, con datos de Store Sales (Favorita), mediante un pipeline reutilizable para cualquier negocio que use la misma plantilla de datos.
+Predicción de la venta total del día siguiente de un supermercado, con datos de Store Sales (Favorita), mediante un pipeline reutilizable para cualquier negocio que use la misma plantilla de datos.
+
+**App:** https://fzlsgz3jep2ztsjwtfz3ze.streamlit.app/
+
+## Problema
+
+Un supermercado decide cada día cuánto pedir, preparar y exhibir para mañana, y cuánto personal poner. El modelo le da al administrador de la tienda (o al dueño de un negocio pequeño) la venta estimada del día siguiente y cuánto se suele equivocar, para que no se quede corto ni pierda producto. Se entrena con la tienda 44 de Corporación Favorita (Quito) y sus 5 familias de mayor venta, presentada como "el supermercado cliente". El detalle está en la sección "Problema" de `src/model_development.ipynb`, y la estrategia de reajuste al final del mismo notebook.
 
 ## Configuración (una sola vez por integrante)
 
