@@ -1,7 +1,23 @@
 # NEXT
 
-Actualizado: 2026-11-02
-Issue activo: #9 (despliegue) y #6 (pipeline), hechos por Nicolás y revisados por Jacobo (ver abajo). Candidato siguiente: modelo final en el notebook (Jacobo), luego #11 (SHAP).
+Actualizado: 2026-11-03
+Issue activo: #11 (SHAP), hecho por Nicolás, pendiente de revisión. Modelo final (#12) hecho por
+Jacobo. Falta: publicar la app (#9) y grabar el video.
+
+## SHAP (issue #11, Nicolás, 2026-11-03)
+
+Sección "Explicabilidad con SHAP" al final del notebook, como en el notebook de clase
+(`Used_cars_RF_and_GB`): `TreeExplainer` sobre el modelo final (HGBT, datos reparados), entrenado
+con el desarrollo y explicado en las 8 semanas de prueba. Aditividad verificada (valor base 32.018
++ suma de SHAP = predicción, diferencia < 1e-10). Summary plot de barras y beeswarm, aporte por
+familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y force plot del
+último día de prueba.
+- Más influyentes: `lag_7_PRODUCE` y `dia_semana`; luego BEVERAGES y `dias_desde_quincena`.
+- Por grupo: PRODUCE ~5.700 > calendario ~3.900 > BEVERAGES ~3.200 > DAIRY, CLEANING y
+  GROCERY I ~1.000 cada una.
+- Aún pendiente de la app: Streamlit Cloud no reconoce el rol admin de Nicolás (permisos de
+  GitHub guardados antes del cambio). Cerrar sesión en share.streamlit.io y volver a entrar, o que
+  Jacobo la publique.
 
 ## Revisión de Jacobo (2026-11-02, después del commit de Nicolás)
 
