@@ -171,3 +171,28 @@ def test_datos_de_prueba_cumplen_la_plantilla_y_el_modelo_gana():
     assert set(datos["family"]) == set(ejemplo.FAMILIAS)
     resultado = pipeline.evaluar(datos)
     assert resultado["wape_modelo"] < resultado["wape_linea_base"]
+
+
+def test_ventana_de_entrenamiento_deja_solo_los_ultimos_dias():
+    tabla = pipeline.construir_tabla_entrenamiento(datos_sinteticos()).dropna()
+    recortada = pipeline.ventana_de_entrenamiento(tabla, 90)
+
+    assert len(recortada) == 90
+    assert recortada["date"].max() == tabla["date"].max()
+    assert pipeline.ventana_de_entrenamiento(tabla, None) is tabla
+    # Los rezagos de la primera fila de la ventana vienen de días anteriores a ella.
+    assert recortada.iloc[0].notna().all()
+    with pytest.raises(ValueError):
+        pipeline.ventana_de_entrenamiento(tabla, 30)
+
+
+def test_ventana_cambia_el_modelo_y_conserva_la_atribucion():
+    datos = datos_sinteticos(dias=200)
+    completo = pipeline.evaluar(datos, n_folds=3)
+    con_ventana = pipeline.evaluar(datos, n_folds=3, ventana_dias=90)
+    assert not np.allclose(completo["test"]["prediccion"], con_ventana["test"]["prediccion"])
+
+    explicacion = pipeline.predecir_y_explicar(datos, ventana_dias=90)
+    _, prediccion = pipeline.predecir_dia_siguiente(datos, ventana_dias=90)
+    assert explicacion["prediccion"] == pytest.approx(prediccion)
+    assert explicacion["atribucion"]["unidades"].sum() == pytest.approx(prediccion, abs=1e-6)

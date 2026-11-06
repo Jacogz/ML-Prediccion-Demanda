@@ -47,6 +47,13 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   derivado de Kaggle y el `.gitignore` dice que esos datos no se redistribuyen. Falta confirmar
   que las reglas de la competencia lo permiten; si no, se borra el archivo y el botón desaparece
   solo. Si el notebook vuelve a exportarlo, hay que copiarlo de nuevo a `ejemplos/`.
+- **Opciones avanzadas en la app:** la persona elige con cuánta historia aprende el modelo (todo,
+  2 años, 1 año, 6 meses, 3 meses) y con cuántas semanas se mide el error (4, 8 o 12). En el
+  pipeline es `ventana_dias` (`entrenar`, `evaluar`, `predecir_*`; CLI `--ventana`): recorta las
+  filas de entrenamiento, no el historial, así que los rezagos del primer día de la ventana
+  siguen viendo días anteriores. En la validación, cada semana entrena con su propia ventana.
+  Tienda 44, 8 semanas, festivos de Ecuador: todo el historial 7,7 % (igual al notebook; MAE
+  2758.6 vs 2750.6 por la fuente de festivos), 2 años 8,3 %, 1 año 9,3 %; regla simple 11,5 %.
 
 ## SHAP en la app (Nicolás, 2026-11-03)
 

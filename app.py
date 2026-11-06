@@ -17,6 +17,15 @@ MAX_FAMILIAS_EN_GRAFICA = 10
 REGLA_SIMPLE = "Regla simple (mismo día de la semana pasada)"
 # Tienda 44 de Favorita con los meses anómalos reparados (la exporta el notebook). Si el archivo no
 # está en el repo, la app no ofrece su descarga.
+# Opción -> (días de historia para entrenar, cómo se dice en la explicación del error).
+VENTANAS = {
+    "Todo el historial": (None, "todos los días anteriores"),
+    "Últimos 2 años": (730, "los 2 años anteriores"),
+    "Último año": (365, "el año anterior"),
+    "Últimos 6 meses": (182, "los 6 meses anteriores"),
+    "Últimos 3 meses": (91, "los 3 meses anteriores"),
+}
+SEMANAS_A_MEDIR = [4, 8, 12]
 TIENDA_44 = Path(__file__).parent / "ejemplos" / "tienda44_reparada.csv"
 
 EJEMPLO = """fecha,categoria,unidades,promocion
@@ -56,9 +65,9 @@ def datos_de_prueba():
 
 
 @st.cache_data(show_spinner=False)
-def calcular(datos, festivos, promociones):
-    resultado = pipeline.evaluar(datos, festivos)
-    explicacion = pipeline.predecir_y_explicar(datos, festivos, dict(promociones))
+def calcular(datos, festivos, promociones, semanas, ventana_dias):
+    resultado = pipeline.evaluar(datos, festivos, semanas, ventana_dias)
+    explicacion = pipeline.predecir_y_explicar(datos, festivos, dict(promociones), ventana_dias)
     return resultado, explicacion
 
 
@@ -201,13 +210,39 @@ promociones = dict(zip(
     tabla_promociones["Categoría"], tabla_promociones["Productos en promoción"].fillna(0)
 ))
 
+dias_archivo = datos["date"].nunique()
+with st.expander("Opciones avanzadas (opcional)"):
+    opciones_ventana = [
+        nombre for nombre, (dias, _) in VENTANAS.items() if dias is None or dias < dias_archivo
+    ]
+    ventana = st.selectbox(
+        "¿Con cuánta historia aprende el modelo?", opciones_ventana,
+        help="Si tu negocio cambió hace poco (nueva sede, nuevos productos, otro barrio), la "
+             "historia vieja puede confundir al modelo. Con menos historia se adapta más rápido, "
+             "pero tiene menos ejemplos de días raros como festivos o diciembre.",
+    )
+    # Cada semana medida necesita días anteriores para aprender: solo se ofrecen las que caben.
+    opciones_semanas = [n for n in SEMANAS_A_MEDIR
+                        if (n + 1) * pipeline.DIAS_POR_FOLD + 14 <= dias_archivo]
+    semanas = st.select_slider(
+        "¿Con cuántas semanas recientes se mide el error?", opciones_semanas,
+        value=pipeline.N_FOLDS,
+        help="Más semanas dan una medida más estable, pero el cálculo tarda más.",
+    )
+ventana_dias, historia = VENTANAS[ventana]
+
 if not st.button("Calcular la venta de mañana", type="primary"):
     st.stop()
 
 with st.spinner("Aprendiendo de tu historial... (puede tardar unos segundos)"):
-    resultado, explicacion = calcular(
-        datos, fechas_festivas(pais, datos), tuple(sorted(promociones.items()))
-    )
+    try:
+        resultado, explicacion = calcular(
+            datos, fechas_festivas(pais, datos), tuple(sorted(promociones.items())), semanas,
+            ventana_dias,
+        )
+    except ValueError as error:
+        st.error(f"No se pudo calcular con estas opciones: {error}")
+        st.stop()
 fecha, prediccion = explicacion["fecha"], explicacion["prediccion"]
 error_habitual = resultado["mae_modelo"]
 
@@ -277,10 +312,9 @@ with st.expander("¿Cómo se calcula este reparto?"):
 # --- Confiabilidad ---------------------------------------------------------------------------
 st.subheader("¿Qué tan confiable es?")
 st.write(
-    f"Para medirlo, se simuló el uso de la herramienta en cada una de las últimas "
-    f"{pipeline.N_FOLDS} semanas del archivo: el modelo aprendió solo con los días anteriores a "
-    "esa semana y luego predijo cada día. Se compara con una regla simple: vender lo mismo que "
-    "el mismo día de la semana pasada."
+    f"Para medirlo, se simuló el uso de la herramienta en cada una de las últimas {semanas} "
+    f"semanas del archivo: el modelo aprendió solo con {historia} a esa semana y luego predijo cada día. Se "
+    "compara con una regla simple: vender lo mismo que el mismo día de la semana pasada."
 )
 # Cambio relativo del error frente a la regla simple: -20 % es equivocarse un 20 % menos.
 cambio = 100 * (resultado["wape_modelo"] / resultado["wape_linea_base"] - 1)

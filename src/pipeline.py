@@ -7,7 +7,7 @@ total del día siguiente.
 Las funciones `recortar_arranque`, `calcular_features` y `construir_tabla_entrenamiento` son las
 mismas del notebook `model_development.ipynb`: si cambian allá, hay que cambiarlas aquí.
 
-Uso: python -m src.pipeline --data <csv> [--folds 4]
+Uso: python -m src.pipeline --data <csv> [--folds 4] [--ventana 365]
 """
 
 import argparse
@@ -36,6 +36,8 @@ FEATURES_POR_FAMILIA = [
 DIAS_POR_FOLD = 7
 N_FOLDS = 4
 MIN_DIAS = 60
+# Ventana de entrenamiento: None = todo el historial; si no, solo los últimos N días.
+MIN_DIAS_VENTANA = 90
 
 
 # Hiperparámetros del modelo final: salida de GridSearchCV en la sección "Modelo final" del
@@ -191,8 +193,22 @@ def prediccion_linea_base(tabla):
     return tabla[lags_7].sum(axis=1, min_count=len(lags_7))
 
 
-def entrenar(tabla):
+def ventana_de_entrenamiento(tabla, ventana_dias=None):
+    """Solo los últimos `ventana_dias` días de la tabla (todos si es None).
+
+    Recorta filas de entrenamiento, no el historial: los rezagos y promedios de esas filas ya se
+    calcularon con los días anteriores a la ventana.
+    """
+    if ventana_dias is None:
+        return tabla
+    if ventana_dias < MIN_DIAS_VENTANA:
+        raise ValueError(f"La ventana de entrenamiento debe tener al menos {MIN_DIAS_VENTANA} días.")
+    return tabla[tabla["date"] > tabla["date"].max() - pd.Timedelta(days=ventana_dias)]
+
+
+def entrenar(tabla, ventana_dias=None):
     tabla = tabla.dropna()  # primeras filas sin historia suficiente para los rezagos
+    tabla = ventana_de_entrenamiento(tabla, ventana_dias)
     modelo = crear_modelo()
     modelo.fit(tabla[columnas_features(tabla)], tabla["ventas_totales"])
     return modelo
@@ -204,18 +220,19 @@ def wape(real, prediccion):
     return 100 * np.abs(real - prediccion).sum() / real.sum()
 
 
-def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS):
+def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS, ventana_dias=None):
     """MAE y WAPE del modelo y de la línea base.
 
     El MAE es el promedio simple de los MAE de cada fold; el WAPE se calcula sobre todas las
-    semanas de prueba juntas.
+    semanas de prueba juntas. Con `ventana_dias`, cada fold entrena solo con los últimos días
+    antes de su semana de prueba, igual que se usaría para predecir mañana.
     """
     tabla = construir_tabla_entrenamiento(recortar_arranque(datos), fechas_festivas)
     tabla = tabla.dropna()  # primeras fechas sin historia suficiente para los rezagos
 
     predicciones, por_fold = [], []
     for fold, (train, test) in enumerate(folds_temporales(tabla, n_folds), start=1):
-        modelo = entrenar(train)
+        modelo = entrenar(train, ventana_dias)
         test = test.copy()
         test["prediccion"] = modelo.predict(test[columnas_features(test)])
         test["linea_base"] = prediccion_linea_base(test)
@@ -282,7 +299,8 @@ def atribucion_de_la_venta(valor_base, aportes, participacion):
     }), externos
 
 
-def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
+def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None,
+                        ventana_dias=None):
     """Predicción del día siguiente y su explicación con SHAP (TreeExplainer, como en clase).
 
     Los aportes se suman por familia y por variable de calendario: valor_base + suma de aportes
@@ -291,7 +309,9 @@ def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
     """
     import shap  # solo se necesita aquí
 
-    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones)
+    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(
+        datos, fechas_festivas, promociones, ventana_dias
+    )
     X = fila[columnas_features(fila)]
     explainer = shap.TreeExplainer(modelo)
     valores = pd.Series(explainer.shap_values(X)[0], index=X.columns)
@@ -300,8 +320,12 @@ def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
     aportes = valores.groupby(lambda c: grupo_de_columna(c, familias)).sum()
     valor_base = float(np.ravel(explainer.expected_value)[0])
 
+    # Participación de cada familia en los mismos días con que se entrenó el modelo.
     historial = recortar_arranque(datos)
-    venta_por_familia = historial[historial["date"] < fecha].groupby("family")["sales"].sum()
+    historial = historial[historial["date"] < fecha]
+    if ventana_dias is not None:
+        historial = historial[historial["date"] > fecha - pd.Timedelta(days=ventana_dias + 1)]
+    venta_por_familia = historial.groupby("family")["sales"].sum()
     atribucion, externos = atribucion_de_la_venta(
         valor_base, aportes, venta_por_familia / venta_por_familia.sum()
     )
@@ -315,13 +339,17 @@ def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
     }
 
 
-def predecir_dia_siguiente(datos, fechas_festivas=frozenset(), promociones=None):
-    """Entrena con todo el historial y predice la venta total del día después de la última fecha."""
-    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones)
+def predecir_dia_siguiente(datos, fechas_festivas=frozenset(), promociones=None,
+                           ventana_dias=None):
+    """Entrena con el historial (o sus últimos `ventana_dias` días) y predice la venta total del
+    día después de la última fecha."""
+    fecha, modelo, fila = _modelo_y_fila_del_dia_siguiente(
+        datos, fechas_festivas, promociones, ventana_dias
+    )
     return fecha, float(modelo.predict(fila[columnas_features(fila)])[0])
 
 
-def _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones):
+def _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones, ventana_dias=None):
     datos = recortar_arranque(datos)
     fecha = datos["date"].max() + pd.Timedelta(days=1)
     if promociones is None:  # por defecto, las promociones del último día
@@ -337,7 +365,7 @@ def _modelo_y_fila_del_dia_siguiente(datos, fechas_festivas, promociones):
     })
     tabla = construir_tabla_entrenamiento(pd.concat([datos, manana]), fechas_festivas)
 
-    modelo = entrenar(tabla[tabla["date"] < fecha])
+    modelo = entrenar(tabla[tabla["date"] < fecha], ventana_dias)
     return fecha, modelo, tabla[tabla["date"] == fecha]
 
 
@@ -345,19 +373,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data", required=True, help="CSV con la plantilla del ADR 0001")
     parser.add_argument("--folds", type=int, default=N_FOLDS, help="semanas de validación")
+    parser.add_argument("--ventana", type=int, default=None,
+                        help="días de historia para entrenar (por defecto, todos)")
     args = parser.parse_args()
 
     datos = cargar_plantilla(args.data)
     completadas = datos.attrs["fechas_completadas"]
     if len(completadas):
         print(f"Días sin registros, completados con venta 0: {len(completadas)}")
-    resultado = evaluar(datos, n_folds=args.folds)
+    resultado = evaluar(datos, n_folds=args.folds, ventana_dias=args.ventana)
     print(f"MAE línea base (mismo día de la semana anterior): {resultado['mae_linea_base']:.1f}")
     print(f"MAE modelo: {resultado['mae_modelo']:.1f}")
     print(f"WAPE línea base: {resultado['wape_linea_base']:.1f} %")
     print(f"WAPE modelo: {resultado['wape_modelo']:.1f} %")
 
-    fecha, prediccion = predecir_dia_siguiente(datos)
+    fecha, prediccion = predecir_dia_siguiente(datos, ventana_dias=args.ventana)
     print(f"Predicción de venta total para {fecha.date()}: {prediccion:.0f}")
 
 
