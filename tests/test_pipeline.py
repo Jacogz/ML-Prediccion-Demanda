@@ -134,3 +134,40 @@ def test_explicacion_suma_la_prediccion_y_agrupa_por_familia():
     total = explicacion["valor_base"] + explicacion["aportes"].sum()
     assert total == pytest.approx(explicacion["prediccion"], abs=1e-6)
     assert set(explicacion["aportes"].index) == {"A", "B", *pipeline.CALENDARIO.values()}
+
+
+def test_wape_es_el_mae_sobre_la_venta_promedio():
+    resultado = pipeline.evaluar(datos_sinteticos(), n_folds=3)
+    test = resultado["test"]
+    venta_promedio = test["ventas_totales"].mean()
+    mae = (test["ventas_totales"] - test["prediccion"]).abs().mean()
+    assert resultado["wape_modelo"] == pytest.approx(100 * mae / venta_promedio)
+    assert resultado["wape_linea_base"] == pytest.approx(
+        100 * resultado["mae_linea_base"] / venta_promedio
+    )
+    assert {"wape_modelo", "wape_linea_base"} <= set(resultado["por_fold"].columns)
+
+
+def test_atribucion_reparte_toda_la_prediccion():
+    explicacion = pipeline.predecir_y_explicar(datos_sinteticos())
+    atribucion = explicacion["atribucion"]
+
+    assert set(atribucion.index) == {"A", "B", pipeline.FACTORES_EXTERNOS}
+    assert atribucion["unidades"].sum() == pytest.approx(explicacion["prediccion"], abs=1e-6)
+    assert atribucion["proporcion"].sum() == pytest.approx(100)
+    # Los factores externos son la suma de los aportes del calendario.
+    assert atribucion.loc[pipeline.FACTORES_EXTERNOS, "unidades"] == pytest.approx(
+        explicacion["aportes_externos"].sum()
+    )
+    assert set(explicacion["aportes_externos"].index) == set(pipeline.CALENDARIO.values())
+
+
+def test_datos_de_prueba_cumplen_la_plantilla_y_el_modelo_gana():
+    from src import ejemplo
+
+    csv = ejemplo.generar_ventas_ejemplo().to_csv(index=False)
+    assert csv == ejemplo.generar_ventas_ejemplo().to_csv(index=False)  # misma semilla
+    datos = pipeline.cargar_plantilla(io.StringIO(csv))
+    assert set(datos["family"]) == set(ejemplo.FAMILIAS)
+    resultado = pipeline.evaluar(datos)
+    assert resultado["wape_modelo"] < resultado["wape_linea_base"]

@@ -198,8 +198,18 @@ def entrenar(tabla):
     return modelo
 
 
+def wape(real, prediccion):
+    """Error absoluto total como % de la venta total. Con semanas del mismo largo es igual al MAE
+    dividido entre la venta diaria promedio, como el `wape_%` del notebook."""
+    return 100 * np.abs(real - prediccion).sum() / real.sum()
+
+
 def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS):
-    """MAE del modelo y de la línea base: promedio simple de los MAE de cada fold."""
+    """MAE y WAPE del modelo y de la línea base.
+
+    El MAE es el promedio simple de los MAE de cada fold; el WAPE se calcula sobre todas las
+    semanas de prueba juntas.
+    """
     tabla = construir_tabla_entrenamiento(recortar_arranque(datos), fechas_festivas)
     tabla = tabla.dropna()  # primeras fechas sin historia suficiente para los rezagos
 
@@ -217,14 +227,19 @@ def evaluar(datos, fechas_festivas=frozenset(), n_folds=N_FOLDS):
             "hasta": test["date"].max(),
             "mae_modelo": mean_absolute_error(test["ventas_totales"], test["prediccion"]),
             "mae_linea_base": mean_absolute_error(test["ventas_totales"], test["linea_base"]),
+            "wape_modelo": wape(test["ventas_totales"], test["prediccion"]),
+            "wape_linea_base": wape(test["ventas_totales"], test["linea_base"]),
         })
 
     por_fold = pd.DataFrame(por_fold)
+    todas = pd.concat(predicciones)
     return {
         "mae_modelo": por_fold["mae_modelo"].mean(),
         "mae_linea_base": por_fold["mae_linea_base"].mean(),
+        "wape_modelo": wape(todas["ventas_totales"], todas["prediccion"]),
+        "wape_linea_base": wape(todas["ventas_totales"], todas["linea_base"]),
         "por_fold": por_fold,
-        "test": pd.concat(predicciones)[
+        "test": todas[
             ["date", "fold", "ventas_totales", "prediccion", "linea_base"]
         ],
     }
@@ -245,11 +260,34 @@ def grupo_de_columna(columna, familias):
     return next(f for f in familias if columna.endswith("_" + sanitizar(f)))
 
 
+FACTORES_EXTERNOS = "Factores externos"
+
+
+def atribucion_de_la_venta(valor_base, aportes, participacion):
+    """Parte de la venta predicha que el modelo atribuye a cada familia y a los factores externos.
+
+    SHAP reparte la predicción en valor_base + aportes. El valor base es la venta total de un día
+    promedio, que es la suma de las ventas promedio de cada familia; por eso se reparte entre las
+    familias según su `participacion` en la venta histórica. A cada familia se le suma después su
+    aporte SHAP (sus ventas pasadas y promociones). Los factores externos (calendario) no tienen
+    parte del valor base: solo su aporte, que puede ser negativo. La suma da la predicción.
+    """
+    familias = participacion.index
+    unidades = valor_base * participacion + aportes.reindex(familias)
+    externos = aportes.drop(familias)
+    unidades[FACTORES_EXTERNOS] = externos.sum()
+    return pd.DataFrame({
+        "unidades": unidades,
+        "proporcion": 100 * unidades / unidades.sum(),
+    }), externos
+
+
 def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
     """Predicción del día siguiente y su explicación con SHAP (TreeExplainer, como en clase).
 
     Los aportes se suman por familia y por variable de calendario: valor_base + suma de aportes
-    = predicción.
+    = predicción. `atribucion` los convierte en la proporción de la venta predicha que corresponde
+    a cada familia y a los factores externos (ver `atribucion_de_la_venta`).
     """
     import shap  # solo se necesita aquí
 
@@ -260,11 +298,20 @@ def predecir_y_explicar(datos, fechas_festivas=frozenset(), promociones=None):
 
     familias = datos["family"].unique()
     aportes = valores.groupby(lambda c: grupo_de_columna(c, familias)).sum()
+    valor_base = float(np.ravel(explainer.expected_value)[0])
+
+    historial = recortar_arranque(datos)
+    venta_por_familia = historial[historial["date"] < fecha].groupby("family")["sales"].sum()
+    atribucion, externos = atribucion_de_la_venta(
+        valor_base, aportes, venta_por_familia / venta_por_familia.sum()
+    )
     return {
         "fecha": fecha,
         "prediccion": float(modelo.predict(X)[0]),
-        "valor_base": float(np.ravel(explainer.expected_value)[0]),
+        "valor_base": valor_base,
         "aportes": aportes.sort_values(key=abs, ascending=False),
+        "atribucion": atribucion,
+        "aportes_externos": externos,
     }
 
 
@@ -307,6 +354,8 @@ def main():
     resultado = evaluar(datos, n_folds=args.folds)
     print(f"MAE línea base (mismo día de la semana anterior): {resultado['mae_linea_base']:.1f}")
     print(f"MAE modelo: {resultado['mae_modelo']:.1f}")
+    print(f"WAPE línea base: {resultado['wape_linea_base']:.1f} %")
+    print(f"WAPE modelo: {resultado['wape_modelo']:.1f} %")
 
     fecha, prediccion = predecir_dia_siguiente(datos)
     print(f"Predicción de venta total para {fecha.date()}: {prediccion:.0f}")

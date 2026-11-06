@@ -1,14 +1,18 @@
 """Interfaz de predicción de demanda (issue #9). Ejecutar con: streamlit run app.py"""
 
+import altair as alt
 import holidays
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from src import pipeline
+from src import ejemplo, pipeline
 
 PAISES = {"Ninguno": None, "Colombia": "CO", "Ecuador": "EC"}
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+         "septiembre", "octubre", "noviembre", "diciembre"]
+MAX_FAMILIAS_EN_GRAFICA = 10
+REGLA_SIMPLE = "Regla simple (mismo día de la semana pasada)"
 
 EJEMPLO = """fecha,categoria,unidades,promocion
 2024-01-01,Pan,120,0
@@ -16,6 +20,22 @@ EJEMPLO = """fecha,categoria,unidades,promocion
 2024-01-02,Pan,135,0
 2024-01-02,Bebidas,75,0
 """
+
+
+def unidades(valor):
+    return f"{valor:,.0f}".replace(",", ".")
+
+
+def porcentaje(valor):
+    return f"{valor:.1f}".replace(".", ",") + " %"
+
+
+def fecha_larga(fecha):
+    return f"{DIAS[fecha.day_of_week]} {fecha.day} de {MESES[fecha.month - 1]} de {fecha.year}"
+
+
+def fecha_corta(fecha):
+    return f"{fecha.day} {MESES[fecha.month - 1][:3]}"
 
 
 def fechas_festivas(pais, datos):
@@ -26,62 +46,90 @@ def fechas_festivas(pais, datos):
 
 
 @st.cache_data(show_spinner=False)
+def datos_de_prueba():
+    return ejemplo.generar_ventas_ejemplo().to_csv(index=False)
+
+
+@st.cache_data(show_spinner=False)
 def calcular(datos, festivos, promociones):
     resultado = pipeline.evaluar(datos, festivos)
     explicacion = pipeline.predecir_y_explicar(datos, festivos, dict(promociones))
     return resultado, explicacion
 
 
-def nombre_aporte(grupo, fecha):
-    if grupo == "Día de la semana":
-        return f"Día de la semana ({DIAS[fecha.dayofweek]})"
-    if grupo in pipeline.CALENDARIO.values():
-        return grupo
-    return f"Ventas y promociones de {grupo}"
+def agrupar_familias_pequenas(atribucion):
+    """Con muchas familias, las de menor venta se juntan en una sola barra."""
+    familias = atribucion.drop(pipeline.FACTORES_EXTERNOS)
+    if len(familias) <= MAX_FAMILIAS_EN_GRAFICA:
+        return atribucion
+    familias = familias.sort_values("unidades", ascending=False)
+    grandes = familias.iloc[: MAX_FAMILIAS_EN_GRAFICA - 1]
+    resto = familias.iloc[MAX_FAMILIAS_EN_GRAFICA - 1:]
+    otras = pd.DataFrame([resto.sum()], index=[f"Otras {len(resto)} familias"])
+    return pd.concat([grandes, otras, atribucion.loc[[pipeline.FACTORES_EXTERNOS]]])
 
 
-def en_frase(grupo):
-    return grupo[0].lower() + grupo[1:]
+def grafica_atribucion(atribucion):
+    tabla = atribucion.reset_index(names="parte")
+    tabla["tipo"] = tabla["parte"].map(
+        lambda p: "Factores externos" if p == pipeline.FACTORES_EXTERNOS else "Familia de producto"
+    )
+    tabla["etiqueta"] = [
+        f"{porcentaje(p)} · {unidades(u)} u." for p, u in zip(tabla["proporcion"], tabla["unidades"])
+    ]
+    orden = tabla.sort_values("proporcion", ascending=False)["parte"].tolist()
+    base = alt.Chart(tabla).encode(
+        y=alt.Y("parte:N", sort=orden, title=None, axis=alt.Axis(labelLimit=220)),
+        x=alt.X("proporcion:Q", title="% de la venta estimada"),
+        tooltip=[
+            alt.Tooltip("parte:N", title="Parte"),
+            alt.Tooltip("etiqueta:N", title="Aporte"),
+        ],
+    )
+    barras = base.mark_bar(cornerRadiusEnd=3).encode(
+        color=alt.Color(
+            "tipo:N",
+            scale=alt.Scale(domain=["Familia de producto", "Factores externos"],
+                            range=["#1f6fb4", "#e08a1e"]),
+            legend=alt.Legend(title=None, orient="bottom"),
+        )
+    )
+    textos = base.mark_text(align="left", dx=4).encode(text="etiqueta:N")
+    return (barras + textos).properties(height=40 * len(tabla) + 40)
 
 
-def grafica_aportes(aportes):
-    aportes = aportes.sort_values()
-    fig, ax = plt.subplots(figsize=(7, 0.45 * len(aportes) + 1))
-    colores = ["#2e7d32" if v > 0 else "#c62828" for v in aportes]
-    ax.barh(aportes.index, aportes.values, color=colores)
-    ax.axvline(0, color="black", linewidth=0.8)
-    for i, v in enumerate(aportes.values):
-        ax.annotate(f"{v:+,.0f}", (v, i), xytext=(4 if v > 0 else -4, 0),
-                    textcoords="offset points", va="center", ha="left" if v > 0 else "right")
-    ax.set_xlabel("unidades que suma o resta a la predicción")
-    ax.margins(x=0.25)
-    for lado in ("top", "right"):
-        ax.spines[lado].set_visible(False)
-    fig.tight_layout()
-    return fig
-
-
-st.set_page_config(page_title="Predicción de demanda", page_icon="📈")
+st.set_page_config(page_title="Predicción de demanda", page_icon="📈", layout="centered")
 st.title("¿Cuánto voy a vender mañana?")
 st.write(
-    "Sube el historial de ventas diarias de tu negocio. La app aprende de él y estima "
-    "las unidades que vas a vender el día siguiente al último día del archivo."
+    "Sube el historial de ventas diarias de tu negocio. La herramienta aprende de él y te dice "
+    "cuánto vas a vender el día siguiente, de dónde sale esa venta y qué tanto puedes confiar "
+    "en el número."
 )
 
+# --- Paso 1: archivo -------------------------------------------------------------------------
+st.header("1. Tu historial de ventas")
 with st.expander("¿Qué archivo necesito?"):
     st.markdown(
-        "Un archivo **CSV** con una fila por día y categoría de producto, y estas columnas:\n"
-        "- `fecha`: el día, en formato AAAA-MM-DD.\n"
-        "- `categoria`: el producto o familia de productos.\n"
+        "Un archivo **CSV** (se puede guardar así desde Excel) con una fila por día y categoría "
+        "de producto, y estas columnas:\n"
+        "- `fecha`: el día, en formato AAAA-MM-DD (por ejemplo, 2024-01-31).\n"
+        "- `categoria`: el producto o la familia de productos.\n"
         "- `unidades`: cuántas unidades se vendieron ese día.\n"
         "- `promocion` (opcional): cuántos productos de esa categoría estaban en promoción.\n\n"
-        f"Se necesitan al menos {pipeline.MIN_DIAS} días de ventas."
+        f"Se necesitan al menos {pipeline.MIN_DIAS} días de ventas. Entre más historia, mejor."
     )
-    st.download_button("Descargar ejemplo de formato", EJEMPLO, "ejemplo_plantilla.csv", "text/csv")
+    col1, col2 = st.columns(2)
+    col1.download_button("Descargar un ejemplo del formato", EJEMPLO, "ejemplo_plantilla.csv",
+                         "text/csv")
+    col2.download_button("Descargar datos de prueba", datos_de_prueba(), "ventas_de_prueba.csv",
+                         "text/csv")
+    st.caption(
+        "Los datos de prueba son inventados: casi 4 años de un supermercado con 5 familias de "
+        "producto, hasta el 14 de noviembre de 2024. Descárgalos y súbelos aquí abajo para ver "
+        "la herramienta funcionando. Para esos datos, elige los festivos de Colombia."
+    )
 
 archivo = st.file_uploader("Archivo de ventas (CSV)", type="csv")
-pais = st.selectbox("Festivos de qué país tener en cuenta", list(PAISES))
-
 if archivo is None:
     st.info("Sube un archivo para empezar.")
     st.stop()
@@ -94,8 +142,9 @@ except ValueError as error:
 
 categorias = sorted(datos["family"].unique())
 st.success(
-    f"Archivo leído: {len(categorias)} categorías, del {datos['date'].min():%Y-%m-%d} "
-    f"al {datos['date'].max():%Y-%m-%d}."
+    f"Archivo leído: {len(categorias)} categorías y "
+    f"{datos['date'].nunique()} días de ventas, del {fecha_larga(datos['date'].min())} "
+    f"al {fecha_larga(datos['date'].max())}."
 )
 
 completadas = datos.attrs.get("fechas_completadas", [])
@@ -107,53 +156,154 @@ if len(completadas):
         + (" y otros." if len(completadas) > 5 else ".")
     )
 
+# --- Paso 2: mañana --------------------------------------------------------------------------
+manana = datos["date"].max() + pd.Timedelta(days=1)
+st.header("2. Lo que sabes de mañana")
+st.caption(f"Mañana es el {fecha_larga(manana)}, el día siguiente al último del archivo.")
+pais = st.selectbox(
+    "¿De qué país son los festivos que afectan tu negocio?", list(PAISES),
+    help="Los festivos cambian lo que se vende. Si no aplica, deja «Ninguno».",
+)
+
 ultimo_dia = datos[datos["date"] == datos["date"].max()].set_index("family")["onpromotion"]
 with st.expander("Promociones planeadas para mañana (opcional)"):
-    st.caption("Por defecto se usan las del último día del archivo.")
-    promociones = {
-        cat: st.number_input(cat, min_value=0, value=int(ultimo_dia.get(cat, 0)), step=1)
-        for cat in categorias
-    }
+    st.caption(
+        "Cuántos productos de cada categoría vas a tener en promoción. Si no lo cambias, se "
+        "usan las del último día del archivo."
+    )
+    tabla_promociones = st.data_editor(
+        pd.DataFrame({
+            "Categoría": categorias,
+            "Productos en promoción": [int(ultimo_dia.get(c, 0)) for c in categorias],
+        }),
+        column_config={
+            "Categoría": st.column_config.TextColumn(disabled=True),
+            "Productos en promoción": st.column_config.NumberColumn(min_value=0, step=1),
+        },
+        hide_index=True,
+        width="stretch",
+    )
+promociones = dict(zip(
+    tabla_promociones["Categoría"], tabla_promociones["Productos en promoción"].fillna(0)
+))
 
-if not st.button("Calcular predicción", type="primary"):
+if not st.button("Calcular la venta de mañana", type="primary"):
     st.stop()
 
-with st.spinner("Entrenando el modelo con tu historial..."):
+with st.spinner("Aprendiendo de tu historial... (puede tardar unos segundos)"):
     resultado, explicacion = calcular(
         datos, fechas_festivas(pais, datos), tuple(sorted(promociones.items()))
     )
 fecha, prediccion = explicacion["fecha"], explicacion["prediccion"]
+error_habitual = resultado["mae_modelo"]
 
-st.metric(f"Ventas estimadas para el {fecha:%Y-%m-%d}", f"{prediccion:,.0f} unidades")
-
-st.subheader("¿Por qué ese número?")
-aportes = explicacion["aportes"].rename(lambda g: nombre_aporte(g, fecha))
-suben, bajan = aportes[aportes > 0].head(2), aportes[aportes < 0].head(2)
-frases = []
-if len(suben):
-    frases.append("Lo que más la sube: " + ", ".join(f"{en_frase(g)} (+{v:,.0f})" for g, v in suben.items()) + ".")
-if len(bajan):
-    frases.append("Lo que más la baja: " + ", ".join(f"{en_frase(g)} ({v:,.0f})" for g, v in bajan.items()) + ".")
+# --- Resultado -------------------------------------------------------------------------------
+st.header("3. Resultado")
+st.subheader(f"Venta estimada para el {fecha_larga(fecha)}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Venta total estimada", f"{unidades(prediccion)} u.")
+col2.metric("Error habitual", f"± {unidades(error_habitual)} u.",
+            help="Cuánto se equivocó el modelo, en promedio por día, en las últimas semanas.")
+col3.metric("Error habitual en %", porcentaje(resultado["wape_modelo"]),
+            help="El error habitual como porcentaje de lo que se vende (WAPE).")
 st.write(
-    f"El modelo parte de un valor promedio de **{explicacion['valor_base']:,.0f} unidades** y lo "
-    "ajusta con lo que sabe de mañana. Cada barra es cuánto lo sube (verde) o lo baja (rojo); "
-    "la suma da la predicción. " + " ".join(frases)
+    f"Planea para una venta de alrededor de **{unidades(prediccion)} unidades**. En un día "
+    f"típico, la venta real queda entre **{unidades(prediccion - error_habitual)}** y "
+    f"**{unidades(prediccion + error_habitual)}** unidades; algunos días el error es mayor."
 )
-st.pyplot(grafica_aportes(aportes))
-st.caption("Calculado con SHAP sobre el modelo entrenado con tu archivo.")
 
+# --- Atribución ------------------------------------------------------------------------------
+st.subheader("¿De dónde sale esa venta?")
+atribucion = explicacion["atribucion"]
+externos = atribucion.loc[pipeline.FACTORES_EXTERNOS]
+familias = atribucion.drop(pipeline.FACTORES_EXTERNOS).sort_values("proporcion", ascending=False)
+principal = familias.index[0]
+st.write(
+    f"Según el modelo, **{principal}** explica la mayor parte de la venta de mañana "
+    f"(**{porcentaje(familias.loc[principal, 'proporcion'])}**). Cada familia aporta según lo "
+    "que ha venido vendiendo y sus promociones. Los **factores externos** (día de la semana, "
+    "quincena y festivos) aportan **"
+    f"{porcentaje(externos['proporcion'])}** ({unidades(externos['unidades'])} unidades)"
+    + (": el calendario de mañana resta ventas frente a un día promedio."
+       if externos["unidades"] < 0 else ".")
+)
+st.altair_chart(grafica_atribucion(agrupar_familias_pequenas(atribucion)),
+                width="stretch")
+
+with st.expander("¿Qué hay dentro de los factores externos?"):
+    detalle = explicacion["aportes_externos"].rename(
+        lambda g: f"Día de la semana ({DIAS[fecha.day_of_week]})" if g == "Día de la semana" else g
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Factor": detalle.index,
+            "Unidades que suma o resta": [f"{v:+,.0f}".replace(",", ".") for v in detalle],
+        }),
+        hide_index=True, width="stretch",
+    )
+    st.caption("Positivo: ese factor sube la venta de mañana frente a un día promedio. "
+               "Negativo: la baja.")
+
+with st.expander("¿Cómo se calcula este reparto?"):
+    st.markdown(
+        "Se usa **SHAP**, un método que reparte la predicción del modelo entre las variables que "
+        "usó. SHAP parte de la venta de un día promedio "
+        f"({unidades(explicacion['valor_base'])} unidades) y le suma o resta lo que aporta cada "
+        "variable.\n\n"
+        "- La venta de un día promedio se reparte entre las familias según cuánto ha vendido cada "
+        "una en tu historial.\n"
+        "- A cada familia se le suma lo que SHAP le atribuye a sus ventas recientes y sus "
+        "promociones.\n"
+        "- Los factores externos solo cuentan lo que suman o restan frente a un día promedio; por "
+        "eso pueden ser negativos.\n\n"
+        "Las partes suman exactamente la venta estimada. Es la explicación **del modelo**, no una "
+        "medición de causa y efecto."
+    )
+
+# --- Confiabilidad ---------------------------------------------------------------------------
 st.subheader("¿Qué tan confiable es?")
 st.write(
-    f"Para medirlo se simuló su uso en cada una de las últimas {pipeline.N_FOLDS} semanas del "
-    f"archivo: el modelo se entrenó solo con los días anteriores a esa semana y luego la "
-    f"predijo. Se equivocó en promedio en **{resultado['mae_modelo']:,.0f} unidades "
-    f"por día**. La regla simple de repetir lo vendido el mismo día de la semana pasada se "
-    f"equivocó en **{resultado['mae_linea_base']:,.0f}**."
+    f"Para medirlo, se simuló el uso de la herramienta en cada una de las últimas "
+    f"{pipeline.N_FOLDS} semanas del archivo: el modelo aprendió solo con los días anteriores a "
+    "esa semana y luego predijo cada día. Se compara con una regla simple: vender lo mismo que "
+    "el mismo día de la semana pasada."
 )
+# Cambio relativo del error frente a la regla simple: -20 % es equivocarse un 20 % menos.
+cambio = 100 * (resultado["wape_modelo"] / resultado["wape_linea_base"] - 1)
+col1, col2 = st.columns(2)
+col1.metric("Error del modelo", porcentaje(resultado["wape_modelo"]),
+            delta=f"{'-' if cambio < 0 else '+'}{porcentaje(abs(cambio))} de error frente a la "
+                  "regla simple",
+            delta_color="inverse")
+col2.metric("Error de la regla simple", porcentaje(resultado["wape_linea_base"]))
+st.caption(
+    "Error: cuánto se equivoca en total, como % de lo que se vendió en esas semanas (WAPE). "
+    "Entre más bajo, mejor."
+)
+
+por_semana = resultado["por_fold"]
+st.dataframe(
+    pd.DataFrame({
+        "Semana": [f"{fecha_corta(d)} – {fecha_corta(h)}"
+                   for d, h in zip(por_semana["desde"], por_semana["hasta"])],
+        "Error del modelo": por_semana["wape_modelo"].map(porcentaje),
+        "Error de la regla simple": por_semana["wape_linea_base"].map(porcentaje),
+        "¿Ganó el modelo?": (por_semana["wape_modelo"] < por_semana["wape_linea_base"])
+        .map({True: "Sí", False: "No"}),
+    }),
+    hide_index=True, width="stretch",
+)
+
+ultima = por_semana.iloc[-1]
+if ultima["wape_modelo"] >= ultima["wape_linea_base"]:
+    st.warning(
+        "En la semana más reciente el modelo fue peor que la regla simple. Toma la estimación "
+        "de mañana con más cautela y vuelve a calcularla cuando tengas más días de ventas."
+    )
 
 grafica = resultado["test"].drop(columns="fold").set_index("date").rename(columns={
     "ventas_totales": "Ventas reales",
     "prediccion": "Modelo",
-    "linea_base": "Mismo día semana pasada",
+    "linea_base": REGLA_SIMPLE,
 })
-st.line_chart(grafica, x_label="fecha", y_label="unidades")
+st.line_chart(grafica, x_label="fecha", y_label="unidades vendidas")

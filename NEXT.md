@@ -19,6 +19,32 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   GitHub guardados antes del cambio). Cerrar sesión en share.streamlit.io y volver a entrar, o que
   Jacobo la publique.
 
+## App como herramienta de negocio (Jacobo, 2026-11-06)
+
+- **WAPE:** `pipeline.evaluar` devuelve `wape_modelo` y `wape_linea_base` (todas las semanas de
+  prueba juntas = MAE / venta diaria promedio, como el `wape_%` del notebook) y lo mismo por
+  semana en `por_fold`. La CLI también lo imprime. Tienda 44 reparada, últimas 4 semanas: modelo
+  9,4 %, regla simple 11,8 %.
+- **SHAP en proporciones:** la gráfica responde "¿qué parte de la venta de mañana se atribuye a
+  cada familia y qué parte a factores externos?". `atribucion_de_la_venta`: el valor base de SHAP
+  (un día promedio) se reparte entre familias según su participación en la venta histórica; a
+  cada familia se le suma su aporte SHAP (ventas pasadas + promociones); "Factores externos" es
+  la suma de los aportes de calendario (día de la semana, quincena, festivo) y puede ser
+  negativo. Las partes suman la predicción (test). Es una convención nuestra para repartir el
+  valor base: hay que contarla así en la presentación.
+- **App reorganizada en 3 pasos** (archivo → lo que sabes de mañana → resultado), fechas en
+  español, números con punto de miles, promociones en una tabla editable, error habitual (±MAE)
+  junto a la predicción, tabla por semana de modelo vs regla simple y aviso si en la última
+  semana perdió contra la regla simple. Probada con `AppTest` y `tienda44_reparada.csv`; falta
+  mirarla en el navegador.
+- **Datos de prueba descargables:** botón "Descargar datos de prueba" junto al ejemplo del
+  formato. Son **sintéticos** (`src/ejemplo.py`, semilla fija): no subimos `tienda44_*.csv`
+  porque es derivado de Kaggle y el repo es público. 5 familias, 2021-01-01 a 2024-11-14, con
+  patrón semanal, quincenas, festivos de Colombia, diciembre, promociones y rachas; cierra el
+  25-dic y el 1-ene. Con festivos de Colombia: modelo 4,8 % vs regla simple 8,5 %. Un test
+  verifica que cumple la plantilla y que el modelo le gana a la regla simple. Para el video se
+  puede seguir usando `tienda44_reparada.csv` subida a mano.
+
 ## SHAP en la app (Nicolás, 2026-11-03)
 
 Sección "¿Por qué ese número?" debajo de la predicción: `pipeline.predecir_y_explicar` calcula
