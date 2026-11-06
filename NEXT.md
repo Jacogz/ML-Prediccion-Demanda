@@ -38,12 +38,15 @@ familia (suma de |SHAP| medio de sus columnas) con tabla familia × variable, y 
   semana perdió contra la regla simple. Probada con `AppTest` y `tienda44_reparada.csv`; falta
   mirarla en el navegador.
 - **Datos de prueba descargables:** botón "Descargar datos de prueba" junto al ejemplo del
-  formato. Son **sintéticos** (`src/ejemplo.py`, semilla fija): no subimos `tienda44_*.csv`
-  porque es derivado de Kaggle y el repo es público. 5 familias, 2021-01-01 a 2024-11-14, con
+  formato. Son **sintéticos** (`src/ejemplo.py`, semilla fija). 5 familias, 2021-01-01 a 2024-11-14, con
   patrón semanal, quincenas, festivos de Colombia, diciembre, promociones y rachas; cierra el
   25-dic y el 1-ene. Con festivos de Colombia: modelo 4,8 % vs regla simple 8,5 %. Un test
-  verifica que cumple la plantilla y que el modelo le gana a la regla simple. Para el video se
-  puede seguir usando `tienda44_reparada.csv` subida a mano.
+  verifica que cumple la plantilla y que el modelo le gana a la regla simple.
+- **Descarga de la tienda 44:** tercer botón con `ejemplos/tienda44_reparada.csv` (el que exporta
+  el notebook), que ahora **sí está en el repo** por decisión de Jacobo (2026-11-06), aunque es
+  derivado de Kaggle y el `.gitignore` dice que esos datos no se redistribuyen. Falta confirmar
+  que las reglas de la competencia lo permiten; si no, se borra el archivo y el botón desaparece
+  solo. Si el notebook vuelve a exportarlo, hay que copiarlo de nuevo a `ejemplos/`.
 
 ## SHAP en la app (Nicolás, 2026-11-03)
 

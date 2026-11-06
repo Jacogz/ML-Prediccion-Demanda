@@ -1,5 +1,7 @@
 """Interfaz de predicción de demanda (issue #9). Ejecutar con: streamlit run app.py"""
 
+from pathlib import Path
+
 import altair as alt
 import holidays
 import pandas as pd
@@ -13,6 +15,9 @@ MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto
          "septiembre", "octubre", "noviembre", "diciembre"]
 MAX_FAMILIAS_EN_GRAFICA = 10
 REGLA_SIMPLE = "Regla simple (mismo día de la semana pasada)"
+# Tienda 44 de Favorita con los meses anómalos reparados (la exporta el notebook). Si el archivo no
+# está en el repo, la app no ofrece su descarga.
+TIENDA_44 = Path(__file__).parent / "ejemplos" / "tienda44_reparada.csv"
 
 EJEMPLO = """fecha,categoria,unidades,promocion
 2024-01-01,Pan,120,0
@@ -118,16 +123,25 @@ with st.expander("¿Qué archivo necesito?"):
         "- `promocion` (opcional): cuántos productos de esa categoría estaban en promoción.\n\n"
         f"Se necesitan al menos {pipeline.MIN_DIAS} días de ventas. Entre más historia, mejor."
     )
-    col1, col2 = st.columns(2)
-    col1.download_button("Descargar un ejemplo del formato", EJEMPLO, "ejemplo_plantilla.csv",
-                         "text/csv")
-    col2.download_button("Descargar datos de prueba", datos_de_prueba(), "ventas_de_prueba.csv",
-                         "text/csv")
-    st.caption(
-        "Los datos de prueba son inventados: casi 4 años de un supermercado con 5 familias de "
-        "producto, hasta el 14 de noviembre de 2024. Descárgalos y súbelos aquí abajo para ver "
-        "la herramienta funcionando. Para esos datos, elige los festivos de Colombia."
+    columnas = st.columns(3 if TIENDA_44.exists() else 2)
+    columnas[0].download_button("Ejemplo del formato", EJEMPLO, "ejemplo_plantilla.csv",
+                                "text/csv")
+    columnas[1].download_button("Datos de prueba (inventados)", datos_de_prueba(),
+                                "ventas_de_prueba.csv", "text/csv")
+    texto = (
+        "Para ver la herramienta funcionando, descarga un archivo de prueba y súbelo aquí abajo. "
+        "**Datos inventados:** casi 4 años de un supermercado con 5 familias de producto, hasta "
+        "el 14 de noviembre de 2024; elige los festivos de Colombia."
     )
+    if TIENDA_44.exists():
+        columnas[2].download_button("Datos reales: tienda 44", TIENDA_44.read_bytes(),
+                                    TIENDA_44.name, "text/csv")
+        texto += (
+            " **Tienda 44:** ventas reales de un supermercado de Corporación Favorita en Quito "
+            "(Kaggle), sus 5 familias de mayor venta, de 2013 a agosto de 2017; elige los "
+            "festivos de Ecuador."
+        )
+    st.caption(texto)
 
 archivo = st.file_uploader("Archivo de ventas (CSV)", type="csv")
 if archivo is None:
